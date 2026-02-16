@@ -24,6 +24,15 @@ function onOpen() {
 }
 
 /**
+ * Ensures the custom menu is also added when the project is installed.
+ *
+ * @param {GoogleAppsScript.Events.SheetsOnOpen=} e Open event object.
+ */
+function onInstall(e) {
+  onOpen(e);
+}
+
+/**
  * Simple trigger.
  * Note: simple onEdit triggers run in LIMITED auth mode and cannot call CalendarApp.
  * Keep this as a no-op guard so accidental simple-trigger execution is harmless.
