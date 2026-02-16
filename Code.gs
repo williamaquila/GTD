@@ -13,6 +13,17 @@ const CONFIG = {
 };
 
 /**
+ * Adds a custom menu so trigger setup and manual download are available in UI.
+ */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Calendar Sync')
+    .addItem('Install download trigger', 'setupDownloadTrigger_')
+    .addItem('Download now', 'downloadNow')
+    .addToUi();
+}
+
+/**
  * Simple trigger.
  * Note: simple onEdit triggers run in LIMITED auth mode and cannot call CalendarApp.
  * Keep this as a no-op guard so accidental simple-trigger execution is harmless.
@@ -49,8 +60,15 @@ function setupDownloadTrigger_() {
   );
 
   if (!exists) {
-    ScriptApp.newTrigger('onEditInstallable').forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
+    ScriptApp.newTrigger('onEditInstallable')
+      .forSpreadsheet(SpreadsheetApp.getActive())
+      .onEdit()
+      .create();
+    SpreadsheetApp.getActive().toast('Download trigger installed.', 'Calendar Sync', 5);
+    return;
   }
+
+  SpreadsheetApp.getActive().toast('Download trigger already installed.', 'Calendar Sync', 5);
 }
 
 /**
