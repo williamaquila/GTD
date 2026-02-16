@@ -13,22 +13,74 @@ const CONFIG = {
 };
 
 /**
- * Triggered automatically when the spreadsheet is edited.
- * If the download checkbox is ticked, download calendar events into columns A:E.
+ * Simple trigger.
+ * Note: simple onEdit triggers run in LIMITED auth mode and cannot call CalendarApp.
+ * Keep this as a no-op guard so accidental simple-trigger execution is harmless.
  *
  * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
  */
 function onEdit(e) {
+  if (e && e.authMode === ScriptApp.AuthMode.LIMITED) {
+    return;
+  }
+  handleDownloadCheckboxEdit_(e);
+}
+
+/**
+ * Installable edit trigger entry point.
+ * Create this trigger once by running setupDownloadTrigger_.
+ *
+ * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
+ */
+function onEditInstallable(e) {
+  handleDownloadCheckboxEdit_(e);
+}
+
+/**
+ * Creates the required installable edit trigger (one-time setup).
+ * Run this manually once from Apps Script editor.
+ */
+function setupDownloadTrigger_() {
+  const triggers = ScriptApp.getProjectTriggers();
+  const exists = triggers.some(
+    (trigger) =>
+      trigger.getHandlerFunction() === 'onEditInstallable' &&
+      trigger.getEventType() === ScriptApp.EventType.ON_EDIT
+  );
+
+  if (!exists) {
+    ScriptApp.newTrigger('onEditInstallable').forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
+  }
+}
+
+/**
+ * Handles checkbox edits and runs download when checkbox is checked.
+ *
+ * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
+ */
+function handleDownloadCheckboxEdit_(e) {
   if (!e || !e.range) return;
 
   const sheet = e.range.getSheet();
   if (CONFIG.SHEET_NAME && sheet.getName() !== CONFIG.SHEET_NAME) return;
   if (e.range.getA1Notation() !== CONFIG.DOWNLOAD_CHECKBOX_CELL) return;
-  if (e.value !== 'TRUE') return;
+
+  const isChecked = typeof e.range.isChecked === 'function' ? e.range.isChecked() : e.value === 'TRUE' || e.value === true;
+  if (!isChecked) return;
 
   downloadCalendarEntries_(sheet);
-  // Reset the checkbox after download completes.
   e.range.setValue(false);
+}
+
+/**
+ * Manual helper for running the same download without editing checkbox.
+ */
+function downloadNow() {
+  const sheet = SpreadsheetApp.getActiveSheet();
+  if (CONFIG.SHEET_NAME && sheet.getName() !== CONFIG.SHEET_NAME) {
+    throw new Error(`Active sheet must be "${CONFIG.SHEET_NAME}".`);
+  }
+  downloadCalendarEntries_(sheet);
 }
 
 /**
