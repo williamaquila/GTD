@@ -247,7 +247,7 @@ function downloadCalendarEntries_(sheet) {
       event.getId(),
       event.getTitle(),
       startTime,
-      startTime,
+      toTimeFraction_(startTime),
       durationHours
     ];
   });
@@ -267,6 +267,21 @@ function downloadCalendarEntries_(sheet) {
   sheet
     .getRange(CONFIG.OUTPUT_START_ROW, 5, values.length, 1)
     .setNumberFormat('0.##');
+}
+
+
+/**
+ * Converts a Date into a Sheets time-only numeric fraction of a day.
+ *
+ * @param {Date} dateTime
+ * @returns {number}
+ */
+function toTimeFraction_(dateTime) {
+  return (
+    dateTime.getHours() * 60 * 60 +
+    dateTime.getMinutes() * 60 +
+    dateTime.getSeconds()
+  ) / (24 * 60 * 60);
 }
 
 /**
