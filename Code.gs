@@ -13,6 +13,7 @@ const CONFIG = {
   TIME_COLUMN: 4,
   DURATION_COLUMN: 5,
   UPLOAD_COLUMN: 6,
+  STATUS_COLUMN: 7,
   DOWNLOAD_CHECKBOX_CELL: 'J1',
   PERIOD_START_CELL: 'J3',
   PERIOD_END_CELL: 'J4'
@@ -137,13 +138,31 @@ function handleUploadCheckboxEdit_(e) {
 
   const sheet = e.range.getSheet();
   const row = e.range.getRow();
-  const event = upsertCalendarEventFromRow_(sheet, row);
 
-  // Ensure ID in sheet matches final calendar event ID.
-  sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
+  try {
+    const event = upsertCalendarEventFromRow_(sheet, row);
 
-  // Reset upload checkbox.
-  e.range.setValue(false);
+    // Ensure ID in sheet matches final calendar event ID.
+    sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
+    setUploadStatus_(sheet, row, 'Uploaded');
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    setUploadStatus_(sheet, row, `Error: ${message}`);
+  } finally {
+    // Reset upload checkbox.
+    e.range.setValue(false);
+  }
+}
+
+/**
+ * Writes upload status to the cell right of the upload checkbox.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet Target sheet.
+ * @param {number} row Row number.
+ * @param {string} status Status text.
+ */
+function setUploadStatus_(sheet, row, status) {
+  sheet.getRange(row, CONFIG.STATUS_COLUMN).setValue(status);
 }
 
 /**
