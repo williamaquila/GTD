@@ -7,6 +7,12 @@ const CONFIG = {
   OUTPUT_START_ROW: 2,
   OUTPUT_START_COLUMN: 1, // A
   OUTPUT_COLUMN_COUNT: 5, // A:E => id, event, date, time, duration
+  ID_COLUMN: 1,
+  EVENT_COLUMN: 2,
+  DATE_COLUMN: 3,
+  TIME_COLUMN: 4,
+  DURATION_COLUMN: 5,
+  UPLOAD_COLUMN: 6,
   DOWNLOAD_CHECKBOX_CELL: 'J1',
   PERIOD_START_CELL: 'J3',
   PERIOD_END_CELL: 'J4'
@@ -43,7 +49,7 @@ function onEdit(e) {
   if (e && e.authMode === ScriptApp.AuthMode.LIMITED) {
     return;
   }
-  handleDownloadCheckboxEdit_(e);
+  handleSheetEdit_(e);
 }
 
 /**
@@ -53,7 +59,7 @@ function onEdit(e) {
  * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
  */
 function onEditInstallable(e) {
-  handleDownloadCheckboxEdit_(e);
+  handleSheetEdit_(e);
 }
 
 /**
@@ -81,22 +87,107 @@ function setupDownloadTrigger_() {
 }
 
 /**
- * Handles checkbox edits and runs download when checkbox is checked.
+ * Routes sheet edits to download/upload actions.
  *
  * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
  */
-function handleDownloadCheckboxEdit_(e) {
+function handleSheetEdit_(e) {
   if (!e || !e.range) return;
 
   const sheet = e.range.getSheet();
   if (CONFIG.SHEET_NAME && sheet.getName() !== CONFIG.SHEET_NAME) return;
-  if (e.range.getA1Notation() !== CONFIG.DOWNLOAD_CHECKBOX_CELL) return;
 
-  const isChecked = typeof e.range.isChecked === 'function' ? e.range.isChecked() : e.value === 'TRUE' || e.value === true;
+  if (e.range.getA1Notation() === CONFIG.DOWNLOAD_CHECKBOX_CELL) {
+    handleDownloadCheckboxEdit_(e);
+    return;
+  }
+
+  if (e.range.getColumn() === CONFIG.UPLOAD_COLUMN && e.range.getRow() >= CONFIG.OUTPUT_START_ROW) {
+    handleUploadCheckboxEdit_(e);
+  }
+}
+
+/**
+ * Handles download checkbox edits and runs download when checkbox is checked.
+ *
+ * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
+ */
+function handleDownloadCheckboxEdit_(e) {
+  const isChecked =
+    typeof e.range.isChecked === 'function'
+      ? e.range.isChecked()
+      : e.value === 'TRUE' || e.value === true;
   if (!isChecked) return;
 
-  downloadCalendarEntries_(sheet);
+  downloadCalendarEntries_(e.range.getSheet());
   e.range.setValue(false);
+}
+
+/**
+ * Handles upload checkbox edits and pushes the row content back to Calendar.
+ *
+ * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
+ */
+function handleUploadCheckboxEdit_(e) {
+  const isChecked =
+    typeof e.range.isChecked === 'function'
+      ? e.range.isChecked()
+      : e.value === 'TRUE' || e.value === true;
+  if (!isChecked) return;
+
+  const sheet = e.range.getSheet();
+  const row = e.range.getRow();
+  const event = upsertCalendarEventFromRow_(sheet, row);
+
+  // Ensure ID in sheet matches final calendar event ID.
+  sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
+
+  // Reset upload checkbox.
+  e.range.setValue(false);
+}
+
+/**
+ * Reads a row and updates/creates the calendar event represented by that row.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet Target sheet.
+ * @param {number} row Row number.
+ * @returns {GoogleAppsScript.Calendar.CalendarEvent}
+ */
+function upsertCalendarEventFromRow_(sheet, row) {
+  const idValue = String(sheet.getRange(row, CONFIG.ID_COLUMN).getValue() || '').trim();
+  const title = String(sheet.getRange(row, CONFIG.EVENT_COLUMN).getValue() || '').trim();
+  const dateValue = sheet.getRange(row, CONFIG.DATE_COLUMN).getValue();
+  const timeValue = sheet.getRange(row, CONFIG.TIME_COLUMN).getValue();
+  const durationHoursRaw = sheet.getRange(row, CONFIG.DURATION_COLUMN).getValue();
+
+  if (!title) {
+    throw new Error(`Row ${row}: event title is required.`);
+  }
+  if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
+    throw new Error(`Row ${row}: date must be a valid date.`);
+  }
+  if (!(timeValue instanceof Date) || Number.isNaN(timeValue.getTime())) {
+    throw new Error(`Row ${row}: time must be a valid time.`);
+  }
+
+  const durationHours = Number(durationHoursRaw);
+  if (!Number.isFinite(durationHours) || durationHours <= 0) {
+    throw new Error(`Row ${row}: duration must be a positive number of hours.`);
+  }
+
+  const start = combineDateAndTime_(dateValue, timeValue);
+  const end = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
+
+  const calendar = CalendarApp.getDefaultCalendar();
+  let calendarEvent = idValue ? calendar.getEventById(idValue) : null;
+
+  if (calendarEvent) {
+    calendarEvent.setTitle(title);
+    calendarEvent.setTime(start, end);
+    return calendarEvent;
+  }
+
+  return calendar.createEvent(title, start, end);
 }
 
 /**
@@ -174,6 +265,25 @@ function downloadCalendarEntries_(sheet) {
   sheet
     .getRange(CONFIG.OUTPUT_START_ROW, 5, values.length, 1)
     .setNumberFormat('0.##');
+}
+
+/**
+ * Combines a date value and time value into a single Date.
+ *
+ * @param {Date} dateValue
+ * @param {Date} timeValue
+ * @returns {Date}
+ */
+function combineDateAndTime_(dateValue, timeValue) {
+  return new Date(
+    dateValue.getFullYear(),
+    dateValue.getMonth(),
+    dateValue.getDate(),
+    timeValue.getHours(),
+    timeValue.getMinutes(),
+    0,
+    0
+  );
 }
 
 /**
