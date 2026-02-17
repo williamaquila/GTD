@@ -1,9 +1,8 @@
 /**
- * Configuration for the sheet and calendar download controls.
+ * Configuration for calendar sync controls.
  */
 const CONFIG = {
   SHEET_NAME: '',
-  OUTPUT_HEADER_ROW: 1,
   OUTPUT_START_ROW: 2,
   OUTPUT_START_COLUMN: 1, // A
   OUTPUT_COLUMN_COUNT: 5, // A:E => id, event, date, time, duration
@@ -13,14 +12,12 @@ const CONFIG = {
   TIME_COLUMN: 4,
   DURATION_COLUMN: 5,
   UPLOAD_COLUMN: 6,
-  DOWNLOAD_CHECKBOX_CELL: 'J1',
-  PERIOD_START_CELL: 'J3',
-  PERIOD_END_CELL: 'J4'
+  STATUS_COLUMN: 7,
+  DOWNLOAD_CHECKBOX_RANGE_NAME: 'download',
+  PERIOD_START_RANGE_NAME: 'period_start',
+  PERIOD_END_RANGE_NAME: 'period_end'
 };
 
-/**
- * Adds a custom menu so trigger setup and manual download are available in UI.
- */
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Calendar Sync')
@@ -30,42 +27,27 @@ function onOpen() {
 }
 
 /**
- * Ensures the custom menu is also added when the project is installed.
- *
- * @param {GoogleAppsScript.Events.SheetsOnOpen=} e Open event object.
+ * @param {GoogleAppsScript.Events.SheetsOnOpen=} e
  */
 function onInstall(e) {
   onOpen(e);
 }
 
 /**
- * Simple trigger.
- * Note: simple onEdit triggers run in LIMITED auth mode and cannot call CalendarApp.
- * Keep this as a no-op guard so accidental simple-trigger execution is harmless.
- *
- * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
+ * @param {GoogleAppsScript.Events.SheetsOnEdit} e
  */
 function onEdit(e) {
-  if (e && e.authMode === ScriptApp.AuthMode.LIMITED) {
-    return;
-  }
+  if (e && e.authMode === ScriptApp.AuthMode.LIMITED) return;
   handleSheetEdit_(e);
 }
 
 /**
- * Installable edit trigger entry point.
- * Create this trigger once by running setupDownloadTrigger_.
- *
- * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
+ * @param {GoogleAppsScript.Events.SheetsOnEdit} e
  */
 function onEditInstallable(e) {
   handleSheetEdit_(e);
 }
 
-/**
- * Creates the required installable edit trigger (one-time setup).
- * Run this manually once from Apps Script editor.
- */
 function setupDownloadTrigger_() {
   const triggers = ScriptApp.getProjectTriggers();
   const exists = triggers.some(
@@ -87,9 +69,7 @@ function setupDownloadTrigger_() {
 }
 
 /**
- * Routes sheet edits to download/upload actions.
- *
- * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
+ * @param {GoogleAppsScript.Events.SheetsOnEdit} e
  */
 function handleSheetEdit_(e) {
   if (!e || !e.range) return;
@@ -97,102 +77,39 @@ function handleSheetEdit_(e) {
   const sheet = e.range.getSheet();
   if (CONFIG.SHEET_NAME && sheet.getName() !== CONFIG.SHEET_NAME) return;
 
-  if (e.range.getA1Notation() === CONFIG.DOWNLOAD_CHECKBOX_CELL) {
-    handleDownloadCheckboxEdit_(e);
+  const downloadCheckboxRange = getNamedRangeOrThrow_(CONFIG.DOWNLOAD_CHECKBOX_RANGE_NAME);
+  const editedRange = e.range;
+
+  const isDownloadCheckboxEdit =
+    editedRange.getA1Notation() === downloadCheckboxRange.getA1Notation() &&
+    editedRange.getSheet().getSheetId() === downloadCheckboxRange.getSheet().getSheetId();
+
+  if (isDownloadCheckboxEdit) {
+    const isChecked =
+      typeof editedRange.isChecked === 'function'
+        ? editedRange.isChecked()
+        : e.value === 'TRUE' || e.value === true;
+
+    if (isChecked) {
+      downloadCalendarEntries_(sheet);
+      editedRange.setValue(false);
+    }
     return;
   }
 
-  if (e.range.getColumn() === CONFIG.UPLOAD_COLUMN && e.range.getRow() >= CONFIG.OUTPUT_START_ROW) {
-    handleUploadCheckboxEdit_(e);
-  }
-}
+  const isUploadCell =
+    editedRange.getColumn() === CONFIG.UPLOAD_COLUMN && editedRange.getRow() >= CONFIG.OUTPUT_START_ROW;
+  if (!isUploadCell) return;
 
-/**
- * Handles download checkbox edits and runs download when checkbox is checked.
- *
- * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
- */
-function handleDownloadCheckboxEdit_(e) {
   const isChecked =
-    typeof e.range.isChecked === 'function'
-      ? e.range.isChecked()
+    typeof editedRange.isChecked === 'function'
+      ? editedRange.isChecked()
       : e.value === 'TRUE' || e.value === true;
   if (!isChecked) return;
 
-  downloadCalendarEntries_(e.range.getSheet());
-  e.range.setValue(false);
+  handleUploadCheckboxEdit_(sheet, editedRange.getRow(), editedRange);
 }
 
-/**
- * Handles upload checkbox edits and pushes the row content back to Calendar.
- *
- * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
- */
-function handleUploadCheckboxEdit_(e) {
-  const isChecked =
-    typeof e.range.isChecked === 'function'
-      ? e.range.isChecked()
-      : e.value === 'TRUE' || e.value === true;
-  if (!isChecked) return;
-
-  const sheet = e.range.getSheet();
-  const row = e.range.getRow();
-  const event = upsertCalendarEventFromRow_(sheet, row);
-
-  // Ensure ID in sheet matches final calendar event ID.
-  sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
-
-  // Reset upload checkbox.
-  e.range.setValue(false);
-}
-
-/**
- * Reads a row and updates/creates the calendar event represented by that row.
- *
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet Target sheet.
- * @param {number} row Row number.
- * @returns {GoogleAppsScript.Calendar.CalendarEvent}
- */
-function upsertCalendarEventFromRow_(sheet, row) {
-  const idValue = String(sheet.getRange(row, CONFIG.ID_COLUMN).getValue() || '').trim();
-  const title = String(sheet.getRange(row, CONFIG.EVENT_COLUMN).getValue() || '').trim();
-  const dateValue = sheet.getRange(row, CONFIG.DATE_COLUMN).getValue();
-  const timeValue = sheet.getRange(row, CONFIG.TIME_COLUMN).getValue();
-  const durationHoursRaw = sheet.getRange(row, CONFIG.DURATION_COLUMN).getValue();
-
-  if (!title) {
-    throw new Error(`Row ${row}: event title is required.`);
-  }
-  if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
-    throw new Error(`Row ${row}: date must be a valid date.`);
-  }
-  if (!(timeValue instanceof Date) || Number.isNaN(timeValue.getTime())) {
-    throw new Error(`Row ${row}: time must be a valid time.`);
-  }
-
-  const durationHours = Number(durationHoursRaw);
-  if (!Number.isFinite(durationHours) || durationHours <= 0) {
-    throw new Error(`Row ${row}: duration must be a positive number of hours.`);
-  }
-
-  const start = combineDateAndTime_(dateValue, timeValue);
-  const end = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
-
-  const calendar = CalendarApp.getDefaultCalendar();
-  let calendarEvent = idValue ? calendar.getEventById(idValue) : null;
-
-  if (calendarEvent) {
-    calendarEvent.setTitle(title);
-    calendarEvent.setTime(start, end);
-    return calendarEvent;
-  }
-
-  return calendar.createEvent(title, start, end);
-}
-
-/**
- * Manual helper for running the same download without editing checkbox.
- */
 function downloadNow() {
   const sheet = SpreadsheetApp.getActiveSheet();
   if (CONFIG.SHEET_NAME && sheet.getName() !== CONFIG.SHEET_NAME) {
@@ -202,25 +119,24 @@ function downloadNow() {
 }
 
 /**
- * Downloads events in the inclusive period range and writes them to columns A:E.
- *
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet Target sheet.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  */
 function downloadCalendarEntries_(sheet) {
-  const startRaw = sheet.getRange(CONFIG.PERIOD_START_CELL).getValue();
-  const endRaw = sheet.getRange(CONFIG.PERIOD_END_CELL).getValue();
+  const periodStartRange = getNamedRangeOrThrow_(CONFIG.PERIOD_START_RANGE_NAME);
+  const periodEndRange = getNamedRangeOrThrow_(CONFIG.PERIOD_END_RANGE_NAME);
 
-  if (!(startRaw instanceof Date) || !(endRaw instanceof Date)) {
+  const start = parseSheetDate_(periodStartRange.getValue());
+  const end = parseSheetDate_(periodEndRange.getValue());
+
+  if (!start || !end) {
     throw new Error('period_start and period_end must both be valid dates.');
   }
 
-  const start = startOfDay_(startRaw);
-  const endExclusive = addDays_(startOfDay_(endRaw), 1); // inclusive end date
+  const startAtMidnight = startOfDay_(start);
+  const endExclusive = addDays_(startOfDay_(end), 1);
 
-  const calendar = CalendarApp.getDefaultCalendar();
-  const events = calendar.getEvents(start, endExclusive);
+  const events = CalendarApp.getDefaultCalendar().getEvents(startAtMidnight, endExclusive);
 
-  // Clear previous output rows from A:E while keeping headers.
   const lastRow = Math.max(sheet.getLastRow(), CONFIG.OUTPUT_START_ROW);
   const rowsToClear = Math.max(0, lastRow - CONFIG.OUTPUT_START_ROW + 1);
   if (rowsToClear > 0) {
@@ -244,32 +160,171 @@ function downloadCalendarEntries_(sheet) {
     return [
       event.getId(),
       event.getTitle(),
-      startTime,
-      startTime,
+      startOfDay_(startTime),
+      createTimeOnly_(startTime),
       durationHours
     ];
   });
 
-  const outputRange = sheet.getRange(
-    CONFIG.OUTPUT_START_ROW,
-    CONFIG.OUTPUT_START_COLUMN,
-    values.length,
-    CONFIG.OUTPUT_COLUMN_COUNT
-  );
-  outputRange.setValues(values);
+  sheet
+    .getRange(
+      CONFIG.OUTPUT_START_ROW,
+      CONFIG.OUTPUT_START_COLUMN,
+      values.length,
+      CONFIG.OUTPUT_COLUMN_COUNT
+    )
+    .setValues(values);
 
-  // Keep sheet-defined formatting for date column; format time/duration only.
-  sheet
-    .getRange(CONFIG.OUTPUT_START_ROW, 4, values.length, 1)
-    .setNumberFormat('HH:mm');
-  sheet
-    .getRange(CONFIG.OUTPUT_START_ROW, 5, values.length, 1)
-    .setNumberFormat('0.##');
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, CONFIG.DATE_COLUMN, values.length, 1).setNumberFormat('yyyy-mm-dd');
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, CONFIG.TIME_COLUMN, values.length, 1).setNumberFormat('HH:mm');
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, CONFIG.DURATION_COLUMN, values.length, 1).setNumberFormat('0.##');
 }
 
 /**
- * Combines a date value and time value into a single Date.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} row
+ * @param {GoogleAppsScript.Spreadsheet.Range} checkboxRange
+ */
+function handleUploadCheckboxEdit_(sheet, row, checkboxRange) {
+  const statusCell = sheet.getRange(row, CONFIG.STATUS_COLUMN);
+
+  try {
+    const resultMessage = upsertOrDeleteCalendarEventFromRow_(sheet, row);
+    statusCell.setValue(resultMessage);
+  } catch (error) {
+    statusCell.setValue(`Error: ${error.message}`);
+  } finally {
+    checkboxRange.setValue(false);
+  }
+}
+
+/**
+ * If title is empty, delete existing event (if present). Otherwise create/update it.
  *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} row
+ * @returns {string}
+ */
+function upsertOrDeleteCalendarEventFromRow_(sheet, row) {
+  const calendar = CalendarApp.getDefaultCalendar();
+  const idValue = String(sheet.getRange(row, CONFIG.ID_COLUMN).getValue() || '').trim();
+  const title = String(sheet.getRange(row, CONFIG.EVENT_COLUMN).getValue() || '').trim();
+
+  if (!title) {
+    if (!idValue) {
+      return 'Skipped: empty title and no event ID to delete.';
+    }
+
+    const existing = calendar.getEventById(idValue);
+    if (!existing) {
+      sheet.getRange(row, CONFIG.ID_COLUMN).clearContent();
+      return 'Skipped: event ID not found; nothing deleted.';
+    }
+
+    existing.deleteEvent();
+    sheet.getRange(row, CONFIG.ID_COLUMN, 1, CONFIG.OUTPUT_COLUMN_COUNT).clearContent();
+    return 'Deleted event (empty title).';
+  }
+
+  const dateValue = parseSheetDate_(sheet.getRange(row, CONFIG.DATE_COLUMN).getValue());
+  if (!dateValue) {
+    throw new Error(`Row ${row}: date must be a valid date.`);
+  }
+
+  const timeValue = parseSheetTime_(sheet.getRange(row, CONFIG.TIME_COLUMN).getValue());
+  if (!timeValue) {
+    throw new Error(`Row ${row}: time must be a valid time.`);
+  }
+
+  const durationHours = Number(sheet.getRange(row, CONFIG.DURATION_COLUMN).getValue());
+  if (!Number.isFinite(durationHours) || durationHours <= 0) {
+    throw new Error(`Row ${row}: duration must be a positive number of hours.`);
+  }
+
+  const start = combineDateAndTime_(dateValue, timeValue);
+  const end = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
+
+  let event = idValue ? calendar.getEventById(idValue) : null;
+  if (event) {
+    event.setTitle(title);
+    event.setTime(start, end);
+    sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
+    return 'Updated existing event.';
+  }
+
+  event = calendar.createEvent(title, start, end);
+  sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
+  return 'Created new event.';
+}
+
+/**
+ * @param {string} rangeName
+ * @returns {GoogleAppsScript.Spreadsheet.Range}
+ */
+function getNamedRangeOrThrow_(rangeName) {
+  const range = SpreadsheetApp.getActiveSpreadsheet().getRangeByName(rangeName);
+  if (!range) {
+    throw new Error(`Named range "${rangeName}" is missing.`);
+  }
+  return range;
+}
+
+/**
+ * @param {Date|string|number} value
+ * @returns {Date|null}
+ */
+function parseSheetDate_(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value !== 'string') return null;
+
+  const text = value.trim();
+  if (!text) return null;
+
+  const dayFirstMatch = text.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+  if (dayFirstMatch) {
+    const day = Number(dayFirstMatch[1]);
+    const month = Number(dayFirstMatch[2]);
+    const year = Number(dayFirstMatch[3]);
+    const parsed = new Date(year, month - 1, day);
+
+    if (
+      parsed.getFullYear() === year &&
+      parsed.getMonth() === month - 1 &&
+      parsed.getDate() === day
+    ) {
+      return parsed;
+    }
+  }
+
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * @param {Date|string|number} value
+ * @returns {Date|null}
+ */
+function parseSheetTime_(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value !== 'string') return null;
+
+  const text = value.trim();
+  if (!text) return null;
+
+  const timeMatch = text.match(/^(\d{1,2}):(\d{2})$/);
+  if (timeMatch) {
+    const hours = Number(timeMatch[1]);
+    const minutes = Number(timeMatch[2]);
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+      return new Date(1899, 11, 30, hours, minutes, 0, 0);
+    }
+  }
+
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
  * @param {Date} dateValue
  * @param {Date} timeValue
  * @returns {Date}
@@ -287,8 +342,6 @@ function combineDateAndTime_(dateValue, timeValue) {
 }
 
 /**
- * Returns a copy of the date at midnight.
- *
  * @param {Date} date
  * @returns {Date}
  */
@@ -297,8 +350,14 @@ function startOfDay_(date) {
 }
 
 /**
- * Returns a new date offset by a given number of days.
- *
+ * @param {Date} time
+ * @returns {Date}
+ */
+function createTimeOnly_(time) {
+  return new Date(1899, 11, 30, time.getHours(), time.getMinutes(), time.getSeconds(), 0);
+}
+
+/**
  * @param {Date} date
  * @param {number} days
  * @returns {Date}
