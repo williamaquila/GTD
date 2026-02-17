@@ -209,16 +209,18 @@ function downloadNow() {
 function downloadCalendarEntries_(sheet) {
   const startRaw = sheet.getRange(CONFIG.PERIOD_START_CELL).getValue();
   const endRaw = sheet.getRange(CONFIG.PERIOD_END_CELL).getValue();
+  const start = parseSheetDate_(startRaw);
+  const end = parseSheetDate_(endRaw);
 
-  if (!(startRaw instanceof Date) || !(endRaw instanceof Date)) {
+  if (!start || !end) {
     throw new Error('period_start and period_end must both be valid dates.');
   }
 
-  const start = startOfDay_(startRaw);
-  const endExclusive = addDays_(startOfDay_(endRaw), 1); // inclusive end date
+  const startAtMidnight = startOfDay_(start);
+  const endExclusive = addDays_(startOfDay_(end), 1); // inclusive end date
 
   const calendar = CalendarApp.getDefaultCalendar();
-  const events = calendar.getEvents(start, endExclusive);
+  const events = calendar.getEvents(startAtMidnight, endExclusive);
 
   // Clear previous output rows from A:E while keeping headers.
   const lastRow = Math.max(sheet.getLastRow(), CONFIG.OUTPUT_START_ROW);
@@ -265,6 +267,52 @@ function downloadCalendarEntries_(sheet) {
   sheet
     .getRange(CONFIG.OUTPUT_START_ROW, 5, values.length, 1)
     .setNumberFormat('0.##');
+}
+
+/**
+ * Parses sheet values that may be Date objects or text input (for example: dd/mm/yyyy).
+ *
+ * @param {Date|string|number} value
+ * @returns {Date|null}
+ */
+function parseSheetDate_(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const text = value.trim();
+  if (!text) {
+    return null;
+  }
+
+  // Prefer day-first for slash/dot-separated values entered manually in many sheet locales.
+  const dayFirstMatch = text.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+  if (dayFirstMatch) {
+    const day = Number(dayFirstMatch[1]);
+    const month = Number(dayFirstMatch[2]);
+    const year = Number(dayFirstMatch[3]);
+    const parsed = new Date(year, month - 1, day);
+
+    if (
+      parsed.getFullYear() === year &&
+      parsed.getMonth() === month - 1 &&
+      parsed.getDate() === day
+    ) {
+      return parsed;
+    }
+  }
+
+  // Fallback for ISO (yyyy-mm-dd) and other parseable values.
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  return null;
 }
 
 /**
