@@ -13,7 +13,6 @@ const CONFIG = {
   TIME_COLUMN: 4,
   DURATION_COLUMN: 5,
   UPLOAD_COLUMN: 6,
-  STATUS_COLUMN: 7,
   DOWNLOAD_CHECKBOX_CELL: 'J1',
   PERIOD_START_CELL: 'J3',
   PERIOD_END_CELL: 'J4'
@@ -138,31 +137,13 @@ function handleUploadCheckboxEdit_(e) {
 
   const sheet = e.range.getSheet();
   const row = e.range.getRow();
+  const event = upsertCalendarEventFromRow_(sheet, row);
 
-  try {
-    const event = upsertCalendarEventFromRow_(sheet, row);
+  // Ensure ID in sheet matches final calendar event ID.
+  sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
 
-    // Ensure ID in sheet matches final calendar event ID.
-    sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
-    setUploadStatus_(sheet, row, 'Uploaded');
-  } catch (error) {
-    const message = error && error.message ? error.message : String(error);
-    setUploadStatus_(sheet, row, `Error: ${message}`);
-  } finally {
-    // Reset upload checkbox.
-    e.range.setValue(false);
-  }
-}
-
-/**
- * Writes upload status to the cell right of the upload checkbox.
- *
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet Target sheet.
- * @param {number} row Row number.
- * @param {string} status Status text.
- */
-function setUploadStatus_(sheet, row, status) {
-  sheet.getRange(row, CONFIG.STATUS_COLUMN).setValue(status);
+  // Reset upload checkbox.
+  e.range.setValue(false);
 }
 
 /**
@@ -175,11 +156,8 @@ function setUploadStatus_(sheet, row, status) {
 function upsertCalendarEventFromRow_(sheet, row) {
   const idValue = String(sheet.getRange(row, CONFIG.ID_COLUMN).getValue() || '').trim();
   const title = String(sheet.getRange(row, CONFIG.EVENT_COLUMN).getValue() || '').trim();
-  const dateCell = sheet.getRange(row, CONFIG.DATE_COLUMN);
-  const timeCell = sheet.getRange(row, CONFIG.TIME_COLUMN);
-  const dateValue = dateCell.getValue();
-  const timeValue = timeCell.getValue();
-  const timeDisplayValue = timeCell.getDisplayValue();
+  const dateValue = sheet.getRange(row, CONFIG.DATE_COLUMN).getValue();
+  const timeValue = sheet.getRange(row, CONFIG.TIME_COLUMN).getValue();
   const durationHoursRaw = sheet.getRange(row, CONFIG.DURATION_COLUMN).getValue();
 
   if (!title) {
@@ -188,15 +166,16 @@ function upsertCalendarEventFromRow_(sheet, row) {
   if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
     throw new Error(`Row ${row}: date must be a valid date.`);
   }
-
-  const timeParts = parseTimeValue_(timeValue, timeDisplayValue);
+  if (!(timeValue instanceof Date) || Number.isNaN(timeValue.getTime())) {
+    throw new Error(`Row ${row}: time must be a valid time.`);
+  }
 
   const durationHours = Number(durationHoursRaw);
   if (!Number.isFinite(durationHours) || durationHours <= 0) {
     throw new Error(`Row ${row}: duration must be a positive number of hours.`);
   }
 
-  const start = combineDateAndTime_(dateValue, timeParts);
+  const start = combineDateAndTime_(dateValue, timeValue);
   const end = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
 
   const calendar = CalendarApp.getDefaultCalendar();
@@ -265,8 +244,8 @@ function downloadCalendarEntries_(sheet) {
     return [
       event.getId(),
       event.getTitle(),
-      stripTime_(startTime),
-      toTimeFraction_(startTime),
+      startTime,
+      startTime,
       durationHours
     ];
   });
@@ -288,82 +267,20 @@ function downloadCalendarEntries_(sheet) {
     .setNumberFormat('0.##');
 }
 
-
 /**
- * Returns a date-only copy (midnight) of a DateTime.
- *
- * @param {Date} dateTime
- * @returns {Date}
- */
-function stripTime_(dateTime) {
-  return new Date(dateTime.getFullYear(), dateTime.getMonth(), dateTime.getDate());
-}
-
-/**
- * Converts a Date into a Sheets time-only numeric fraction of a day.
- *
- * @param {Date} dateTime
- * @returns {number}
- */
-function toTimeFraction_(dateTime) {
-  return (
-    dateTime.getHours() * 60 * 60 +
-    dateTime.getMinutes() * 60 +
-    dateTime.getSeconds()
-  ) / (24 * 60 * 60);
-}
-
-/**
- * Parses time values from sheet value/display into hour/minute components.
- * Supports Date objects, numeric day fractions, and display strings like HH:mm.
- *
- * @param {*} timeValue
- * @param {string} timeDisplayValue
- * @returns {{hours: number, minutes: number}}
- */
-function parseTimeValue_(timeValue, timeDisplayValue) {
-  if (timeValue instanceof Date && !Number.isNaN(timeValue.getTime())) {
-    return {
-      hours: timeValue.getHours(),
-      minutes: timeValue.getMinutes()
-    };
-  }
-
-  if (typeof timeValue === 'number' && Number.isFinite(timeValue)) {
-    const totalMinutes = Math.round((timeValue % 1) * 24 * 60);
-    return {
-      hours: Math.floor(totalMinutes / 60) % 24,
-      minutes: totalMinutes % 60
-    };
-  }
-
-  const text = String(timeDisplayValue || timeValue || '').trim();
-  const match = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-  if (match) {
-    const hours = Number(match[1]);
-    const minutes = Number(match[2]);
-    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
-      return { hours, minutes };
-    }
-  }
-
-  throw new Error('time must be a valid time (for example 13:00).');
-}
-
-/**
- * Combines a date value and time parts into a single Date.
+ * Combines a date value and time value into a single Date.
  *
  * @param {Date} dateValue
- * @param {{hours: number, minutes: number}} timeParts
+ * @param {Date} timeValue
  * @returns {Date}
  */
-function combineDateAndTime_(dateValue, timeParts) {
+function combineDateAndTime_(dateValue, timeValue) {
   return new Date(
     dateValue.getFullYear(),
     dateValue.getMonth(),
     dateValue.getDate(),
-    timeParts.hours,
-    timeParts.minutes,
+    timeValue.getHours(),
+    timeValue.getMinutes(),
     0,
     0
   );
