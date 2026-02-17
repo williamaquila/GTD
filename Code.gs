@@ -23,12 +23,6 @@ const CONFIG = {
  * Adds a custom menu so trigger setup and manual download are available in UI.
  */
 function onOpen() {
-  try {
-    ensureEditTriggerInstalled_();
-  } catch (error) {
-    // Ignore trigger-install errors here so the menu still loads.
-  }
-
   SpreadsheetApp.getUi()
     .createMenu('Calendar Sync')
     .addItem('Install download trigger', 'setupDownloadTrigger_')
@@ -54,6 +48,14 @@ function onInstall(e) {
  */
 function onEdit(e) {
   if (e && e.authMode === ScriptApp.AuthMode.LIMITED) {
+    if (isDownloadCheckboxEdit_(e)) {
+      SpreadsheetApp.getActive().toast(
+        'Please run "Calendar Sync → Install download trigger" once, then tick download again.',
+        'Calendar Sync',
+        6
+      );
+      e.range.setValue(false);
+    }
     return;
   }
   handleSheetEdit_(e);
@@ -103,6 +105,17 @@ function ensureEditTriggerInstalled_() {
   return true;
 }
 
+
+/**
+ * Returns true when the edit is the configured download checkbox cell.
+ *
+ * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
+ * @returns {boolean}
+ */
+function isDownloadCheckboxEdit_(e) {
+  return Boolean(e && e.range && e.range.getA1Notation() === CONFIG.DOWNLOAD_CHECKBOX_CELL);
+}
+
 /**
  * Routes sheet edits to download/upload actions.
  *
@@ -114,7 +127,7 @@ function handleSheetEdit_(e) {
   const sheet = e.range.getSheet();
   if (CONFIG.SHEET_NAME && sheet.getName() !== CONFIG.SHEET_NAME) return;
 
-  if (e.range.getA1Notation() === CONFIG.DOWNLOAD_CHECKBOX_CELL) {
+  if (isDownloadCheckboxEdit_(e)) {
     handleDownloadCheckboxEdit_(e);
     return;
   }
