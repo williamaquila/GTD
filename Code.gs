@@ -103,7 +103,12 @@ function handleSheetEdit_(e) {
     return;
   }
 
-  if (e.range.getColumn() === CONFIG.UPLOAD_COLUMN && e.range.getRow() >= CONFIG.OUTPUT_START_ROW) {
+  const uploadColumnStart = e.range.getColumn();
+  const uploadColumnEnd = uploadColumnStart + e.range.getNumColumns() - 1;
+  const touchesUploadColumn =
+    uploadColumnStart <= CONFIG.UPLOAD_COLUMN && uploadColumnEnd >= CONFIG.UPLOAD_COLUMN;
+
+  if (touchesUploadColumn && e.range.getLastRow() >= CONFIG.OUTPUT_START_ROW) {
     handleUploadCheckboxEdit_(e);
   }
 }
@@ -130,27 +135,45 @@ function handleDownloadCheckboxEdit_(e) {
  * @param {GoogleAppsScript.Events.SheetsOnEdit} e Edit event object.
  */
 function handleUploadCheckboxEdit_(e) {
-  const isChecked =
-    typeof e.range.isChecked === 'function'
-      ? e.range.isChecked()
-      : e.value === 'TRUE' || e.value === true;
-  if (!isChecked) return;
-
   const sheet = e.range.getSheet();
-  const row = e.range.getRow();
+  const editedRange = e.range;
+  const startRow = Math.max(editedRange.getRow(), CONFIG.OUTPUT_START_ROW);
+  const endRow = editedRange.getLastRow();
 
-  try {
-    const event = upsertCalendarEventFromRow_(sheet, row);
+  if (startRow > endRow) return;
 
-    // Ensure ID in sheet matches final calendar event ID.
-    sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
-    setUploadStatus_(sheet, row, 'Uploaded');
-  } catch (error) {
-    const message = error && error.message ? error.message : String(error);
-    setUploadStatus_(sheet, row, `Error: ${message}`);
-  } finally {
-    // Reset upload checkbox.
-    e.range.setValue(false);
+  const checkboxRange = sheet.getRange(
+    startRow,
+    CONFIG.UPLOAD_COLUMN,
+    endRow - startRow + 1,
+    1
+  );
+  const checkboxValues = checkboxRange.getValues();
+
+  let hasCheckedRows = false;
+
+  checkboxValues.forEach((rowValues, index) => {
+    const isChecked = rowValues[0] === true;
+    if (!isChecked) return;
+
+    hasCheckedRows = true;
+    const row = startRow + index;
+
+    try {
+      const event = upsertCalendarEventFromRow_(sheet, row);
+
+      // Ensure ID in sheet matches final calendar event ID.
+      sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
+      setUploadStatus_(sheet, row, 'Uploaded');
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      setUploadStatus_(sheet, row, `Error: ${message}`);
+    }
+  });
+
+  if (hasCheckedRows) {
+    // Reset upload checkboxes for edited rows in upload column.
+    checkboxRange.setValue(false);
   }
 }
 
