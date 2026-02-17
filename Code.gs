@@ -160,10 +160,16 @@ function handleUploadCheckboxEdit_(e) {
     const row = startRow + index;
 
     try {
-      const event = upsertCalendarEventFromRow_(sheet, row);
+      const syncResult = upsertCalendarEventFromRow_(sheet, row);
+
+      if (syncResult.deleted) {
+        sheet.getRange(row, CONFIG.ID_COLUMN).clearContent();
+        setUploadStatus_(sheet, row, 'Deleted');
+        return;
+      }
 
       // Ensure ID in sheet matches final calendar event ID.
-      sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
+      sheet.getRange(row, CONFIG.ID_COLUMN).setValue(syncResult.event.getId());
       setUploadStatus_(sheet, row, 'Uploaded');
     } catch (error) {
       const message = error && error.message ? error.message : String(error);
@@ -189,11 +195,12 @@ function setUploadStatus_(sheet, row, status) {
 }
 
 /**
- * Reads a row and updates/creates the calendar event represented by that row.
+ * Reads a row and updates/creates/deletes the calendar event represented by that row.
+ * Empty event titles delete the existing event referenced by ID.
  *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet Target sheet.
  * @param {number} row Row number.
- * @returns {GoogleAppsScript.Calendar.CalendarEvent}
+ * @returns {{event?: GoogleAppsScript.Calendar.CalendarEvent, deleted: boolean}}
  */
 function upsertCalendarEventFromRow_(sheet, row) {
   const idValue = String(sheet.getRange(row, CONFIG.ID_COLUMN).getValue() || '').trim();
@@ -205,8 +212,14 @@ function upsertCalendarEventFromRow_(sheet, row) {
   const timeDisplayValue = timeCell.getDisplayValue();
   const durationHoursRaw = sheet.getRange(row, CONFIG.DURATION_COLUMN).getValue();
 
+  const calendar = CalendarApp.getDefaultCalendar();
+  let calendarEvent = idValue ? calendar.getEventById(idValue) : null;
+
   if (!title) {
-    throw new Error(`Row ${row}: event title is required.`);
+    if (calendarEvent) {
+      calendarEvent.deleteEvent();
+    }
+    return { deleted: true };
   }
   if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
     throw new Error(`Row ${row}: date must be a valid date.`);
@@ -222,16 +235,13 @@ function upsertCalendarEventFromRow_(sheet, row) {
   const start = combineDateAndTime_(dateValue, timeParts);
   const end = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
 
-  const calendar = CalendarApp.getDefaultCalendar();
-  let calendarEvent = idValue ? calendar.getEventById(idValue) : null;
-
   if (calendarEvent) {
     calendarEvent.setTitle(title);
     calendarEvent.setTime(start, end);
-    return calendarEvent;
+    return { event: calendarEvent, deleted: false };
   }
 
-  return calendar.createEvent(title, start, end);
+  return { event: calendar.createEvent(title, start, end), deleted: false };
 }
 
 /**
