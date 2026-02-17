@@ -167,10 +167,7 @@ function downloadCalendarEntries_(sheet) {
   );
   outputRange.setValues(values);
 
-  // Apply display formats for date/time/duration columns.
-  sheet
-    .getRange(CONFIG.OUTPUT_START_ROW, 3, values.length, 1)
-    .setNumberFormat('dd/MM/yyyy');
+  // Keep sheet-defined formatting for date column; format time/duration only.
   sheet
     .getRange(CONFIG.OUTPUT_START_ROW, 4, values.length, 1)
     .setNumberFormat('HH:mm');
