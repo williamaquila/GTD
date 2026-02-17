@@ -23,6 +23,12 @@ const CONFIG = {
  * Adds a custom menu so trigger setup and manual download are available in UI.
  */
 function onOpen() {
+  try {
+    ensureEditTriggerInstalled_();
+  } catch (error) {
+    // Ignore trigger-install errors here so the menu still loads.
+  }
+
   SpreadsheetApp.getUi()
     .createMenu('Calendar Sync')
     .addItem('Install download trigger', 'setupDownloadTrigger_')
@@ -68,6 +74,19 @@ function onEditInstallable(e) {
  * Run this manually once from Apps Script editor.
  */
 function setupDownloadTrigger_() {
+  const installed = ensureEditTriggerInstalled_();
+  const message = installed
+    ? 'Download trigger installed.'
+    : 'Download trigger already installed.';
+  SpreadsheetApp.getActive().toast(message, 'Calendar Sync', 5);
+}
+
+/**
+ * Ensures the installable edit trigger exists.
+ *
+ * @returns {boolean} true if trigger was created, false if it already existed.
+ */
+function ensureEditTriggerInstalled_() {
   const triggers = ScriptApp.getProjectTriggers();
   const exists = triggers.some(
     (trigger) =>
@@ -75,16 +94,13 @@ function setupDownloadTrigger_() {
       trigger.getEventType() === ScriptApp.EventType.ON_EDIT
   );
 
-  if (!exists) {
-    ScriptApp.newTrigger('onEditInstallable')
-      .forSpreadsheet(SpreadsheetApp.getActive())
-      .onEdit()
-      .create();
-    SpreadsheetApp.getActive().toast('Download trigger installed.', 'Calendar Sync', 5);
-    return;
-  }
+  if (exists) return false;
 
-  SpreadsheetApp.getActive().toast('Download trigger already installed.', 'Calendar Sync', 5);
+  ScriptApp.newTrigger('onEditInstallable')
+    .forSpreadsheet(SpreadsheetApp.getActive())
+    .onEdit()
+    .create();
+  return true;
 }
 
 /**
