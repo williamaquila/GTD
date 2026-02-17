@@ -265,7 +265,7 @@ function downloadCalendarEntries_(sheet) {
     return [
       event.getId(),
       event.getTitle(),
-      startTime,
+      stripTime_(startTime),
       toTimeFraction_(startTime),
       durationHours
     ];
@@ -288,6 +288,16 @@ function downloadCalendarEntries_(sheet) {
     .setNumberFormat('0.##');
 }
 
+
+/**
+ * Returns a date-only copy (midnight) of a DateTime.
+ *
+ * @param {Date} dateTime
+ * @returns {Date}
+ */
+function stripTime_(dateTime) {
+  return new Date(dateTime.getFullYear(), dateTime.getMonth(), dateTime.getDate());
+}
 
 /**
  * Converts a Date into a Sheets time-only numeric fraction of a day.
