@@ -6,9 +6,9 @@ const CONFIG = {
   OUTPUT_START_ROW: 2,
   OUTPUT_START_COLUMN: 1, // A
   OUTPUT_COLUMN_COUNT: 5, // A:E => id, event, date, time, duration
-  DOWNLOAD_CHECKBOX_CELL: 'I1',
-  PERIOD_START_CELL: 'I3',
-  PERIOD_END_CELL: 'I4'
+  DOWNLOAD_CHECKBOX_RANGE_NAME: 'download',
+  PERIOD_START_RANGE_NAME: 'period_start',
+  PERIOD_END_RANGE_NAME: 'period_end'
 };
 
 /**
@@ -74,7 +74,7 @@ function setupDownloadTrigger_() {
 }
 
 /**
- * Runs a download when the configured checkbox cell is checked.
+ * Runs a download when the configured checkbox named range is checked.
  *
  * @param {GoogleAppsScript.Events.SheetsOnEdit} e
  */
@@ -83,16 +83,23 @@ function handleSheetEdit_(e) {
 
   const sheet = e.range.getSheet();
   if (CONFIG.SHEET_NAME && sheet.getName() !== CONFIG.SHEET_NAME) return;
-  if (e.range.getA1Notation() !== CONFIG.DOWNLOAD_CHECKBOX_CELL) return;
+
+  const downloadCheckboxRange = getNamedRangeOrThrow_(CONFIG.DOWNLOAD_CHECKBOX_RANGE_NAME);
+  const editedRange = e.range;
+  const isDownloadCheckboxEdit =
+    editedRange.getA1Notation() === downloadCheckboxRange.getA1Notation() &&
+    editedRange.getSheet().getSheetId() === downloadCheckboxRange.getSheet().getSheetId();
+
+  if (!isDownloadCheckboxEdit) return;
 
   const isChecked =
-    typeof e.range.isChecked === 'function'
-      ? e.range.isChecked()
+    typeof editedRange.isChecked === 'function'
+      ? editedRange.isChecked()
       : e.value === 'TRUE' || e.value === true;
   if (!isChecked) return;
 
   downloadCalendarEntries_(sheet);
-  e.range.setValue(false);
+  editedRange.setValue(false);
 }
 
 /**
@@ -112,8 +119,11 @@ function downloadNow() {
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  */
 function downloadCalendarEntries_(sheet) {
-  const start = parseSheetDate_(sheet.getRange(CONFIG.PERIOD_START_CELL).getValue());
-  const end = parseSheetDate_(sheet.getRange(CONFIG.PERIOD_END_CELL).getValue());
+  const periodStartRange = getNamedRangeOrThrow_(CONFIG.PERIOD_START_RANGE_NAME);
+  const periodEndRange = getNamedRangeOrThrow_(CONFIG.PERIOD_END_RANGE_NAME);
+
+  const start = parseSheetDate_(periodStartRange.getValue());
+  const end = parseSheetDate_(periodEndRange.getValue());
 
   if (!start || !end) {
     throw new Error('period_start and period_end must both be valid dates.');
@@ -158,6 +168,20 @@ function downloadCalendarEntries_(sheet) {
 
   sheet.getRange(CONFIG.OUTPUT_START_ROW, 4, values.length, 1).setNumberFormat('HH:mm');
   sheet.getRange(CONFIG.OUTPUT_START_ROW, 5, values.length, 1).setNumberFormat('0.##');
+}
+
+/**
+ * Returns a named range or throws a clear error.
+ *
+ * @param {string} rangeName
+ * @returns {GoogleAppsScript.Spreadsheet.Range}
+ */
+function getNamedRangeOrThrow_(rangeName) {
+  const range = SpreadsheetApp.getActiveSpreadsheet().getRangeByName(rangeName);
+  if (!range) {
+    throw new Error(`Named range "${rangeName}" is missing.`);
+  }
+  return range;
 }
 
 /**
