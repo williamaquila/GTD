@@ -156,8 +156,11 @@ function handleUploadCheckboxEdit_(e) {
 function upsertCalendarEventFromRow_(sheet, row) {
   const idValue = String(sheet.getRange(row, CONFIG.ID_COLUMN).getValue() || '').trim();
   const title = String(sheet.getRange(row, CONFIG.EVENT_COLUMN).getValue() || '').trim();
-  const dateValue = sheet.getRange(row, CONFIG.DATE_COLUMN).getValue();
-  const timeValue = sheet.getRange(row, CONFIG.TIME_COLUMN).getValue();
+  const dateCell = sheet.getRange(row, CONFIG.DATE_COLUMN);
+  const timeCell = sheet.getRange(row, CONFIG.TIME_COLUMN);
+  const dateValue = dateCell.getValue();
+  const timeValue = timeCell.getValue();
+  const timeDisplayValue = timeCell.getDisplayValue();
   const durationHoursRaw = sheet.getRange(row, CONFIG.DURATION_COLUMN).getValue();
 
   if (!title) {
@@ -166,16 +169,15 @@ function upsertCalendarEventFromRow_(sheet, row) {
   if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
     throw new Error(`Row ${row}: date must be a valid date.`);
   }
-  if (!(timeValue instanceof Date) || Number.isNaN(timeValue.getTime())) {
-    throw new Error(`Row ${row}: time must be a valid time.`);
-  }
+
+  const timeParts = parseTimeValue_(timeValue, timeDisplayValue);
 
   const durationHours = Number(durationHoursRaw);
   if (!Number.isFinite(durationHours) || durationHours <= 0) {
     throw new Error(`Row ${row}: duration must be a positive number of hours.`);
   }
 
-  const start = combineDateAndTime_(dateValue, timeValue);
+  const start = combineDateAndTime_(dateValue, timeParts);
   const end = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
 
   const calendar = CalendarApp.getDefaultCalendar();
@@ -268,19 +270,56 @@ function downloadCalendarEntries_(sheet) {
 }
 
 /**
- * Combines a date value and time value into a single Date.
+ * Parses time values from sheet value/display into hour/minute components.
+ * Supports Date objects, numeric day fractions, and display strings like HH:mm.
+ *
+ * @param {*} timeValue
+ * @param {string} timeDisplayValue
+ * @returns {{hours: number, minutes: number}}
+ */
+function parseTimeValue_(timeValue, timeDisplayValue) {
+  if (timeValue instanceof Date && !Number.isNaN(timeValue.getTime())) {
+    return {
+      hours: timeValue.getHours(),
+      minutes: timeValue.getMinutes()
+    };
+  }
+
+  if (typeof timeValue === 'number' && Number.isFinite(timeValue)) {
+    const totalMinutes = Math.round((timeValue % 1) * 24 * 60);
+    return {
+      hours: Math.floor(totalMinutes / 60) % 24,
+      minutes: totalMinutes % 60
+    };
+  }
+
+  const text = String(timeDisplayValue || timeValue || '').trim();
+  const match = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (match) {
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+      return { hours, minutes };
+    }
+  }
+
+  throw new Error('time must be a valid time (for example 13:00).');
+}
+
+/**
+ * Combines a date value and time parts into a single Date.
  *
  * @param {Date} dateValue
- * @param {Date} timeValue
+ * @param {{hours: number, minutes: number}} timeParts
  * @returns {Date}
  */
-function combineDateAndTime_(dateValue, timeValue) {
+function combineDateAndTime_(dateValue, timeParts) {
   return new Date(
     dateValue.getFullYear(),
     dateValue.getMonth(),
     dateValue.getDate(),
-    timeValue.getHours(),
-    timeValue.getMinutes(),
+    timeParts.hours,
+    timeParts.minutes,
     0,
     0
   );
