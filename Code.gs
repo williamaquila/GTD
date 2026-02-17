@@ -3,19 +3,20 @@
  */
 const CONFIG = {
   SHEET_NAME: '',
+  HEADER_ROW: 1,
   OUTPUT_START_ROW: 2,
-  OUTPUT_START_COLUMN: 1, // A
-  OUTPUT_COLUMN_COUNT: 5, // A:E => id, event, date, time, duration
-  ID_COLUMN: 1,
-  EVENT_COLUMN: 2,
-  DATE_COLUMN: 3,
-  TIME_COLUMN: 4,
-  DURATION_COLUMN: 5,
-  UPLOAD_COLUMN: 6,
-  STATUS_COLUMN: 7,
   DOWNLOAD_CHECKBOX_RANGE_NAME: 'download',
   PERIOD_START_RANGE_NAME: 'period_start',
-  PERIOD_END_RANGE_NAME: 'period_end'
+  PERIOD_END_RANGE_NAME: 'period_end',
+  HEADER_NAMES: {
+    id: 'id',
+    event: 'event',
+    date: 'date',
+    time: 'time',
+    duration: 'duration',
+    upload: 'upload',
+    status: 'status'
+  }
 };
 
 function onOpen() {
@@ -97,8 +98,9 @@ function handleSheetEdit_(e) {
     return;
   }
 
+  const columns = getColumnIndexes_(sheet);
   const isUploadCell =
-    editedRange.getColumn() === CONFIG.UPLOAD_COLUMN && editedRange.getRow() >= CONFIG.OUTPUT_START_ROW;
+    editedRange.getColumn() === columns.upload && editedRange.getRow() >= CONFIG.OUTPUT_START_ROW;
   if (!isUploadCell) return;
 
   const isChecked =
@@ -107,7 +109,7 @@ function handleSheetEdit_(e) {
       : e.value === 'TRUE' || e.value === true;
   if (!isChecked) return;
 
-  handleUploadCheckboxEdit_(sheet, editedRange.getRow(), editedRange);
+  handleUploadCheckboxEdit_(sheet, editedRange.getRow(), editedRange, columns);
 }
 
 function downloadNow() {
@@ -122,6 +124,7 @@ function downloadNow() {
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  */
 function downloadCalendarEntries_(sheet) {
+  const columns = getColumnIndexes_(sheet);
   const periodStartRange = getNamedRangeOrThrow_(CONFIG.PERIOD_START_RANGE_NAME);
   const periodEndRange = getNamedRangeOrThrow_(CONFIG.PERIOD_END_RANGE_NAME);
 
@@ -134,62 +137,57 @@ function downloadCalendarEntries_(sheet) {
 
   const startAtMidnight = startOfDay_(start);
   const endExclusive = addDays_(startOfDay_(end), 1);
-
   const events = CalendarApp.getDefaultCalendar().getEvents(startAtMidnight, endExclusive);
 
   const lastRow = Math.max(sheet.getLastRow(), CONFIG.OUTPUT_START_ROW);
   const rowsToClear = Math.max(0, lastRow - CONFIG.OUTPUT_START_ROW + 1);
   if (rowsToClear > 0) {
-    sheet
-      .getRange(
-        CONFIG.OUTPUT_START_ROW,
-        CONFIG.OUTPUT_START_COLUMN,
-        rowsToClear,
-        CONFIG.OUTPUT_COLUMN_COUNT
-      )
-      .clearContent();
+    [columns.id, columns.event, columns.date, columns.time, columns.duration].forEach((column) => {
+      sheet.getRange(CONFIG.OUTPUT_START_ROW, column, rowsToClear, 1).clearContent();
+    });
   }
 
   if (events.length === 0) return;
 
-  const values = events.map((event) => {
-    const startTime = event.getStartTime();
-    const durationHours =
-      (event.getEndTime().getTime() - startTime.getTime()) / (1000 * 60 * 60);
+  const idValues = [];
+  const titleValues = [];
+  const dateValues = [];
+  const timeValues = [];
+  const durationValues = [];
 
-    return [
-      event.getId(),
-      event.getTitle(),
-      startOfDay_(startTime),
-      createTimeOnly_(startTime),
-      durationHours
-    ];
+  events.forEach((event) => {
+    const startTime = event.getStartTime();
+    const durationHours = (event.getEndTime().getTime() - startTime.getTime()) / (1000 * 60 * 60);
+
+    idValues.push([event.getId()]);
+    titleValues.push([event.getTitle()]);
+    dateValues.push([startOfDay_(startTime)]);
+    timeValues.push([createTimeOnly_(startTime)]);
+    durationValues.push([durationHours]);
   });
 
-  sheet
-    .getRange(
-      CONFIG.OUTPUT_START_ROW,
-      CONFIG.OUTPUT_START_COLUMN,
-      values.length,
-      CONFIG.OUTPUT_COLUMN_COUNT
-    )
-    .setValues(values);
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.id, idValues.length, 1).setValues(idValues);
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.event, titleValues.length, 1).setValues(titleValues);
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.date, dateValues.length, 1).setValues(dateValues);
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.time, timeValues.length, 1).setValues(timeValues);
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.duration, durationValues.length, 1).setValues(durationValues);
 
-  sheet.getRange(CONFIG.OUTPUT_START_ROW, CONFIG.DATE_COLUMN, values.length, 1).setNumberFormat('yyyy-mm-dd');
-  sheet.getRange(CONFIG.OUTPUT_START_ROW, CONFIG.TIME_COLUMN, values.length, 1).setNumberFormat('HH:mm');
-  sheet.getRange(CONFIG.OUTPUT_START_ROW, CONFIG.DURATION_COLUMN, values.length, 1).setNumberFormat('0.##');
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.date, dateValues.length, 1).setNumberFormat('yyyy-mm-dd');
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.time, timeValues.length, 1).setNumberFormat('HH:mm');
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.duration, durationValues.length, 1).setNumberFormat('0.##');
 }
 
 /**
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @param {number} row
  * @param {GoogleAppsScript.Spreadsheet.Range} checkboxRange
+ * @param {{id:number,event:number,date:number,time:number,duration:number,upload:number,status:number}} columns
  */
-function handleUploadCheckboxEdit_(sheet, row, checkboxRange) {
-  const statusCell = sheet.getRange(row, CONFIG.STATUS_COLUMN);
+function handleUploadCheckboxEdit_(sheet, row, checkboxRange, columns) {
+  const statusCell = sheet.getRange(row, columns.status);
 
   try {
-    const resultMessage = upsertOrDeleteCalendarEventFromRow_(sheet, row);
+    const resultMessage = upsertOrDeleteCalendarEventFromRow_(sheet, row, columns);
     statusCell.setValue(resultMessage);
   } catch (error) {
     statusCell.setValue(`Error: ${error.message}`);
@@ -203,12 +201,13 @@ function handleUploadCheckboxEdit_(sheet, row, checkboxRange) {
  *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @param {number} row
+ * @param {{id:number,event:number,date:number,time:number,duration:number,upload:number,status:number}} columns
  * @returns {string}
  */
-function upsertOrDeleteCalendarEventFromRow_(sheet, row) {
+function upsertOrDeleteCalendarEventFromRow_(sheet, row, columns) {
   const calendar = CalendarApp.getDefaultCalendar();
-  const idValue = String(sheet.getRange(row, CONFIG.ID_COLUMN).getValue() || '').trim();
-  const title = String(sheet.getRange(row, CONFIG.EVENT_COLUMN).getValue() || '').trim();
+  const idValue = String(sheet.getRange(row, columns.id).getValue() || '').trim();
+  const title = String(sheet.getRange(row, columns.event).getValue() || '').trim();
 
   if (!title) {
     if (!idValue) {
@@ -217,26 +216,28 @@ function upsertOrDeleteCalendarEventFromRow_(sheet, row) {
 
     const existing = calendar.getEventById(idValue);
     if (!existing) {
-      sheet.getRange(row, CONFIG.ID_COLUMN).clearContent();
+      sheet.getRange(row, columns.id).clearContent();
       return 'Skipped: event ID not found; nothing deleted.';
     }
 
     existing.deleteEvent();
-    sheet.getRange(row, CONFIG.ID_COLUMN, 1, CONFIG.OUTPUT_COLUMN_COUNT).clearContent();
+    [columns.id, columns.event, columns.date, columns.time, columns.duration].forEach((column) => {
+      sheet.getRange(row, column).clearContent();
+    });
     return 'Deleted event (empty title).';
   }
 
-  const dateValue = parseSheetDate_(sheet.getRange(row, CONFIG.DATE_COLUMN).getValue());
+  const dateValue = parseSheetDate_(sheet.getRange(row, columns.date).getValue());
   if (!dateValue) {
     throw new Error(`Row ${row}: date must be a valid date.`);
   }
 
-  const timeValue = parseSheetTime_(sheet.getRange(row, CONFIG.TIME_COLUMN).getValue());
+  const timeValue = parseSheetTime_(sheet.getRange(row, columns.time).getValue());
   if (!timeValue) {
     throw new Error(`Row ${row}: time must be a valid time.`);
   }
 
-  const durationHours = Number(sheet.getRange(row, CONFIG.DURATION_COLUMN).getValue());
+  const durationHours = Number(sheet.getRange(row, columns.duration).getValue());
   if (!Number.isFinite(durationHours) || durationHours <= 0) {
     throw new Error(`Row ${row}: duration must be a positive number of hours.`);
   }
@@ -248,13 +249,48 @@ function upsertOrDeleteCalendarEventFromRow_(sheet, row) {
   if (event) {
     event.setTitle(title);
     event.setTime(start, end);
-    sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
+    sheet.getRange(row, columns.id).setValue(event.getId());
     return 'Updated existing event.';
   }
 
   event = calendar.createEvent(title, start, end);
-  sheet.getRange(row, CONFIG.ID_COLUMN).setValue(event.getId());
+  sheet.getRange(row, columns.id).setValue(event.getId());
   return 'Created new event.';
+}
+
+/**
+ * Resolves required columns by header labels in CONFIG.HEADER_ROW.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @returns {{id:number,event:number,date:number,time:number,duration:number,upload:number,status:number}}
+ */
+function getColumnIndexes_(sheet) {
+  const lastColumn = sheet.getLastColumn();
+  const headers = sheet
+    .getRange(CONFIG.HEADER_ROW, 1, 1, Math.max(lastColumn, 1))
+    .getValues()[0]
+    .map((value) => String(value || '').trim().toLowerCase());
+
+  const getRequiredColumn = (name) => {
+    const index = headers.indexOf(name.toLowerCase());
+    if (index === -1) {
+      throw new Error(`Missing required header: "${name}".`);
+    }
+    return index + 1;
+  };
+
+  const upload = getRequiredColumn(CONFIG.HEADER_NAMES.upload);
+  const statusIndex = headers.indexOf(CONFIG.HEADER_NAMES.status.toLowerCase());
+
+  return {
+    id: getRequiredColumn(CONFIG.HEADER_NAMES.id),
+    event: getRequiredColumn(CONFIG.HEADER_NAMES.event),
+    date: getRequiredColumn(CONFIG.HEADER_NAMES.date),
+    time: getRequiredColumn(CONFIG.HEADER_NAMES.time),
+    duration: getRequiredColumn(CONFIG.HEADER_NAMES.duration),
+    upload,
+    status: statusIndex === -1 ? upload + 1 : statusIndex + 1
+  };
 }
 
 /**
