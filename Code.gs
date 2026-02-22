@@ -185,14 +185,38 @@ function downloadCalendarEntries_(sheet) {
  */
 function handleUploadCheckboxEdit_(sheet, row, checkboxRange, columns) {
   const statusCell = sheet.getRange(row, columns.status);
+  let shouldClearRowAfterDelay = false;
 
   try {
     const resultMessage = upsertOrDeleteCalendarEventFromRow_(sheet, row, columns);
     statusCell.setValue(resultMessage);
+    shouldClearRowAfterDelay = resultMessage === 'Created new event.';
   } catch (error) {
     statusCell.setValue(`Error: ${error.message}`);
   } finally {
     checkboxRange.setValue(false);
+  }
+
+  if (shouldClearRowAfterDelay) {
+    Utilities.sleep(2000);
+    clearRowContentExceptColumn_(sheet, row, columns.upload);
+  }
+}
+
+/**
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} row
+ * @param {number} excludedColumn
+ */
+function clearRowContentExceptColumn_(sheet, row, excludedColumn) {
+  const lastColumn = sheet.getLastColumn();
+
+  if (excludedColumn > 1) {
+    sheet.getRange(row, 1, 1, excludedColumn - 1).clearContent();
+  }
+
+  if (excludedColumn < lastColumn) {
+    sheet.getRange(row, excludedColumn + 1, 1, lastColumn - excludedColumn).clearContent();
   }
 }
 
