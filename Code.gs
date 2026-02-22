@@ -202,6 +202,7 @@ function handleUploadCheckboxEdit_(sheet, row, checkboxRange, columns) {
   }
 
   if (shouldClearRowAfterDelay) {
+    SpreadsheetApp.flush();
     Utilities.sleep(5000);
     clearRowContentExceptColumn_(sheet, row, columns.upload);
   }
