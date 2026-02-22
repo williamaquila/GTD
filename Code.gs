@@ -198,7 +198,7 @@ function handleUploadCheckboxEdit_(sheet, row, checkboxRange, columns) {
   }
 
   if (shouldClearRowAfterDelay) {
-    Utilities.sleep(2000);
+    Utilities.sleep(5000);
     clearRowContentExceptColumn_(sheet, row, columns.upload);
   }
 }
