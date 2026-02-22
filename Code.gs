@@ -11,6 +11,7 @@ const CONFIG = {
   HEADER_NAMES: {
     id: 'id',
     event: 'event',
+    description: 'description',
     date: 'date',
     time: 'time',
     duration: 'duration',
@@ -142,7 +143,7 @@ function downloadCalendarEntries_(sheet) {
   const lastRow = Math.max(sheet.getLastRow(), CONFIG.OUTPUT_START_ROW);
   const rowsToClear = Math.max(0, lastRow - CONFIG.OUTPUT_START_ROW + 1);
   if (rowsToClear > 0) {
-    [columns.id, columns.event, columns.date, columns.time, columns.duration].forEach((column) => {
+    [columns.id, columns.event, columns.description, columns.date, columns.time, columns.duration].forEach((column) => {
       sheet.getRange(CONFIG.OUTPUT_START_ROW, column, rowsToClear, 1).clearContent();
     });
   }
@@ -151,6 +152,7 @@ function downloadCalendarEntries_(sheet) {
 
   const idValues = [];
   const titleValues = [];
+  const descriptionValues = [];
   const dateValues = [];
   const timeValues = [];
   const durationValues = [];
@@ -161,6 +163,7 @@ function downloadCalendarEntries_(sheet) {
 
     idValues.push([event.getId()]);
     titleValues.push([event.getTitle()]);
+    descriptionValues.push([event.getDescription()]);
     dateValues.push([startOfDay_(startTime)]);
     timeValues.push([createTimeOnly_(startTime)]);
     durationValues.push([durationHours]);
@@ -168,6 +171,7 @@ function downloadCalendarEntries_(sheet) {
 
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.id, idValues.length, 1).setValues(idValues);
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.event, titleValues.length, 1).setValues(titleValues);
+  sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.description, descriptionValues.length, 1).setValues(descriptionValues);
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.date, dateValues.length, 1).setValues(dateValues);
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.time, timeValues.length, 1).setValues(timeValues);
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.duration, durationValues.length, 1).setValues(durationValues);
@@ -181,7 +185,7 @@ function downloadCalendarEntries_(sheet) {
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @param {number} row
  * @param {GoogleAppsScript.Spreadsheet.Range} checkboxRange
- * @param {{id:number,event:number,date:number,time:number,duration:number,upload:number,status:number}} columns
+ * @param {{id:number,event:number,description:number,date:number,time:number,duration:number,upload:number,status:number}} columns
  */
 function handleUploadCheckboxEdit_(sheet, row, checkboxRange, columns) {
   const statusCell = sheet.getRange(row, columns.status);
@@ -225,13 +229,14 @@ function clearRowContentExceptColumn_(sheet, row, excludedColumn) {
  *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @param {number} row
- * @param {{id:number,event:number,date:number,time:number,duration:number,upload:number,status:number}} columns
+ * @param {{id:number,event:number,description:number,date:number,time:number,duration:number,upload:number,status:number}} columns
  * @returns {string}
  */
 function upsertOrDeleteCalendarEventFromRow_(sheet, row, columns) {
   const calendar = CalendarApp.getDefaultCalendar();
   const idValue = String(sheet.getRange(row, columns.id).getValue() || '').trim();
   const title = String(sheet.getRange(row, columns.event).getValue() || '').trim();
+  const description = String(sheet.getRange(row, columns.description).getValue() || '');
 
   if (!title) {
     if (!idValue) {
@@ -245,7 +250,7 @@ function upsertOrDeleteCalendarEventFromRow_(sheet, row, columns) {
     }
 
     existing.deleteEvent();
-    [columns.id, columns.event, columns.date, columns.time, columns.duration].forEach((column) => {
+    [columns.id, columns.event, columns.description, columns.date, columns.time, columns.duration].forEach((column) => {
       sheet.getRange(row, column).clearContent();
     });
     return 'Deleted event (empty title).';
@@ -272,12 +277,13 @@ function upsertOrDeleteCalendarEventFromRow_(sheet, row, columns) {
   let event = idValue ? calendar.getEventById(idValue) : null;
   if (event) {
     event.setTitle(title);
+    event.setDescription(description);
     event.setTime(start, end);
     sheet.getRange(row, columns.id).setValue(event.getId());
     return 'Updated existing event.';
   }
 
-  event = calendar.createEvent(title, start, end);
+  event = calendar.createEvent(title, start, end, { description });
   sheet.getRange(row, columns.id).setValue(event.getId());
   return 'Created new event.';
 }
@@ -286,7 +292,7 @@ function upsertOrDeleteCalendarEventFromRow_(sheet, row, columns) {
  * Resolves required columns by header labels in CONFIG.HEADER_ROW.
  *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
- * @returns {{id:number,event:number,date:number,time:number,duration:number,upload:number,status:number}}
+ * @returns {{id:number,event:number,description:number,date:number,time:number,duration:number,upload:number,status:number}}
  */
 function getColumnIndexes_(sheet) {
   const lastColumn = sheet.getLastColumn();
@@ -309,6 +315,7 @@ function getColumnIndexes_(sheet) {
   return {
     id: getRequiredColumn(CONFIG.HEADER_NAMES.id),
     event: getRequiredColumn(CONFIG.HEADER_NAMES.event),
+    description: getRequiredColumn(CONFIG.HEADER_NAMES.description),
     date: getRequiredColumn(CONFIG.HEADER_NAMES.date),
     time: getRequiredColumn(CONFIG.HEADER_NAMES.time),
     duration: getRequiredColumn(CONFIG.HEADER_NAMES.duration),
