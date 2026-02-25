@@ -100,8 +100,19 @@ function handleSheetEdit_(e) {
   }
 
   const columns = getColumnIndexes_(sheet);
+  const row = editedRange.getRow();
+  const column = editedRange.getColumn();
+
+  const isAutoUploadEdit =
+    row >= CONFIG.OUTPUT_START_ROW &&
+    [columns.event, columns.description, columns.date, columns.time, columns.duration].includes(column);
+  if (isAutoUploadEdit) {
+    handleUploadCheckboxEdit_(sheet, row, null, columns);
+    return;
+  }
+
   const isUploadCell =
-    editedRange.getColumn() === columns.upload && editedRange.getRow() >= CONFIG.OUTPUT_START_ROW;
+    column === columns.upload && row >= CONFIG.OUTPUT_START_ROW;
   if (!isUploadCell) return;
 
   const isChecked =
@@ -110,7 +121,7 @@ function handleSheetEdit_(e) {
       : e.value === 'TRUE' || e.value === true;
   if (!isChecked) return;
 
-  handleUploadCheckboxEdit_(sheet, editedRange.getRow(), editedRange, columns);
+  handleUploadCheckboxEdit_(sheet, row, editedRange, columns);
 }
 
 function downloadNow() {
@@ -184,7 +195,7 @@ function downloadCalendarEntries_(sheet) {
 /**
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @param {number} row
- * @param {GoogleAppsScript.Spreadsheet.Range} checkboxRange
+ * @param {GoogleAppsScript.Spreadsheet.Range|null} checkboxRange
  * @param {{id:number,event:number,description:number,date:number,time:number,duration:number,upload:number,status:number}} columns
  */
 function handleUploadCheckboxEdit_(sheet, row, checkboxRange, columns) {
@@ -198,7 +209,7 @@ function handleUploadCheckboxEdit_(sheet, row, checkboxRange, columns) {
   } catch (error) {
     statusCell.setValue(`Error: ${error.message}`);
   } finally {
-    checkboxRange.setValue(false);
+    if (checkboxRange) checkboxRange.setValue(false);
   }
 
   if (shouldClearRowAfterDelay) {
