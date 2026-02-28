@@ -293,16 +293,64 @@ function upsertOrDeleteCalendarEventFromRow_(sheet, row, columns) {
 
   let event = idValue ? resolveCalendarEventById_(calendar, idValue, sheet, row, columns) : null;
   if (event) {
-    event.setTitle(title);
-    event.setDescription(description);
-    event.setTime(start, end);
-    sheet.getRange(row, columns.id).setValue(event.getId());
-    return 'Updated existing event.';
+    try {
+      event.setTime(start, end);
+      event.setTitle(title);
+      event.setDescription(description);
+      sheet.getRange(row, columns.id).setValue(event.getId());
+      return 'Updated existing event.';
+    } catch (error) {
+      if (shouldRecreateFromRecurringInstanceError_(idValue, error)) {
+        const recreated = recreateEventWithNewTime_(calendar, event, title, description, start, end);
+        sheet.getRange(row, columns.id).setValue(recreated.getId());
+        return 'Updated recurring event by recreating instance.';
+      }
+      throw error;
+    }
   }
 
   event = calendar.createEvent(title, start, end, { description });
   sheet.getRange(row, columns.id).setValue(event.getId());
   return 'Created new event.';
+}
+
+/**
+ * Returns true when update should fallback to recreation for recurring-instance EID errors.
+ *
+ * @param {string} eventId
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function shouldRecreateFromRecurringInstanceError_(eventId, error) {
+  if (!isRecurringInstanceId_(eventId)) return false;
+  const message = String(error && error.message || '').toLowerCase();
+  return message.includes('time part of the eid');
+}
+
+/**
+ * Recreates a recurring instance as a standalone event at a new time.
+ *
+ * @param {GoogleAppsScript.Calendar.Calendar} calendar
+ * @param {GoogleAppsScript.Calendar.CalendarEvent} existingEvent
+ * @param {string} title
+ * @param {string} description
+ * @param {Date} start
+ * @param {Date} end
+ * @returns {GoogleAppsScript.Calendar.CalendarEvent}
+ */
+function recreateEventWithNewTime_(calendar, existingEvent, title, description, start, end) {
+  existingEvent.deleteEvent();
+  return calendar.createEvent(title, start, end, { description });
+}
+
+/**
+ * @param {string} eventId
+ * @returns {boolean}
+ */
+function isRecurringInstanceId_(eventId) {
+  if (!eventId) return false;
+  const localPart = String(eventId).split('@')[0];
+  return localPart.includes('_');
 }
 
 /**
