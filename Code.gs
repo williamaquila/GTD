@@ -215,25 +215,30 @@ function handleUploadCheckboxEdit_(sheet, row, checkboxRange, columns) {
   if (shouldClearRowAfterDelay) {
     SpreadsheetApp.flush();
     Utilities.sleep(5000);
-    clearRowContentExceptColumn_(sheet, row, columns.upload);
+    clearCalendarSyncColumns_(sheet, row, columns);
   }
 }
 
 /**
+ * Clears only the calendar-sync columns for a row.
+ *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @param {number} row
- * @param {number} excludedColumn
+ * @param {{id:number,event:number,description:number,date:number,time:number,duration:number,upload:number,status:number}} columns
  */
-function clearRowContentExceptColumn_(sheet, row, excludedColumn) {
-  const lastColumn = sheet.getLastColumn();
-
-  if (excludedColumn > 1) {
-    sheet.getRange(row, 1, 1, excludedColumn - 1).clearContent();
-  }
-
-  if (excludedColumn < lastColumn) {
-    sheet.getRange(row, excludedColumn + 1, 1, lastColumn - excludedColumn).clearContent();
-  }
+function clearCalendarSyncColumns_(sheet, row, columns) {
+  [
+    columns.id,
+    columns.event,
+    columns.description,
+    columns.date,
+    columns.time,
+    columns.duration,
+    columns.upload,
+    columns.status
+  ].forEach((column) => {
+    sheet.getRange(row, column).clearContent();
+  });
 }
 
 /**
