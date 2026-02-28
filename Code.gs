@@ -260,7 +260,7 @@ function upsertOrDeleteCalendarEventFromRow_(sheet, row, columns) {
       return 'Skipped: empty title and no event ID to delete.';
     }
 
-    const existing = calendar.getEventById(idValue);
+    const existing = resolveCalendarEventById_(calendar, idValue, sheet, row, columns);
     if (!existing) {
       sheet.getRange(row, columns.id).clearContent();
       return 'Skipped: event ID not found; nothing deleted.';
@@ -291,7 +291,7 @@ function upsertOrDeleteCalendarEventFromRow_(sheet, row, columns) {
   const start = combineDateAndTime_(dateValue, timeValue);
   const end = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
 
-  let event = idValue ? calendar.getEventById(idValue) : null;
+  let event = idValue ? resolveCalendarEventById_(calendar, idValue, sheet, row, columns) : null;
   if (event) {
     event.setTitle(title);
     event.setDescription(description);
@@ -303,6 +303,87 @@ function upsertOrDeleteCalendarEventFromRow_(sheet, row, columns) {
   event = calendar.createEvent(title, start, end, { description });
   sheet.getRange(row, columns.id).setValue(event.getId());
   return 'Created new event.';
+}
+
+/**
+ * Resolves an event ID to a CalendarEvent and gracefully handles recurring-instance IDs.
+ *
+ * @param {GoogleAppsScript.Calendar.Calendar} calendar
+ * @param {string} eventId
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} row
+ * @param {{id:number,event:number,description:number,date:number,time:number,duration:number,upload:number,status:number}} columns
+ * @returns {GoogleAppsScript.Calendar.CalendarEvent|null}
+ */
+function resolveCalendarEventById_(calendar, eventId, sheet, row, columns) {
+  if (!eventId) return null;
+
+  try {
+    return calendar.getEventById(eventId);
+  } catch (error) {
+    const maybeRecurringInstanceError = String(error && error.message || '').toLowerCase();
+    if (!maybeRecurringInstanceError.includes('eid')) {
+      throw error;
+    }
+  }
+
+  const seriesId = toSeriesEventId_(eventId);
+  if (!seriesId) return null;
+
+  let series = null;
+  try {
+    series = calendar.getEventSeriesById(seriesId);
+  } catch (error) {
+    return null;
+  }
+  if (!series) return null;
+
+  const dateValue = parseSheetDate_(sheet.getRange(row, columns.date).getValue());
+  if (!dateValue) return null;
+
+  const dayStart = startOfDay_(dateValue);
+  const dayEnd = addDays_(dayStart, 1);
+  const dayEvents = series.getEvents(dayStart, dayEnd);
+  if (dayEvents.length === 0) return null;
+
+  const timeValue = parseSheetTime_(sheet.getRange(row, columns.time).getValue());
+  if (!timeValue) return dayEvents[0];
+
+  const targetStart = combineDateAndTime_(dateValue, timeValue).getTime();
+  let bestEvent = dayEvents[0];
+  let bestDiff = Math.abs(bestEvent.getStartTime().getTime() - targetStart);
+
+  for (let i = 1; i < dayEvents.length; i += 1) {
+    const candidate = dayEvents[i];
+    const diff = Math.abs(candidate.getStartTime().getTime() - targetStart);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestEvent = candidate;
+    }
+  }
+
+  return bestEvent;
+}
+
+/**
+ * Converts a possible recurring instance event ID into its series ID.
+ *
+ * Example:
+ *   abc123_20260228T140000Z@google.com -> abc123@google.com
+ *
+ * @param {string} eventId
+ * @returns {string}
+ */
+function toSeriesEventId_(eventId) {
+  if (!eventId) return '';
+  const parts = String(eventId).split('@');
+  if (parts.length < 2) return String(eventId);
+
+  const domain = parts.slice(1).join('@');
+  const local = parts[0];
+  const underscoreIndex = local.indexOf('_');
+  const baseLocal = underscoreIndex === -1 ? local : local.substring(0, underscoreIndex);
+  return `${baseLocal}@${domain}`;
 }
 
 /**
