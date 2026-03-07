@@ -154,7 +154,15 @@ function downloadCalendarEntries_(sheet) {
   const lastRow = Math.max(sheet.getLastRow(), CONFIG.OUTPUT_START_ROW);
   const rowsToClear = Math.max(0, lastRow - CONFIG.OUTPUT_START_ROW + 1);
   if (rowsToClear > 0) {
-    [columns.id, columns.event, columns.description, columns.date, columns.time, columns.duration].forEach((column) => {
+    [
+      columns.id,
+      columns.event,
+      columns.description,
+      columns.date,
+      columns.time,
+      columns.duration,
+      columns.status
+    ].forEach((column) => {
       sheet.getRange(CONFIG.OUTPUT_START_ROW, column, rowsToClear, 1).clearContent();
     });
   }
