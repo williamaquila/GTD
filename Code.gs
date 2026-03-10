@@ -175,10 +175,13 @@ function downloadCalendarEntries_(sheet) {
   const dateValues = [];
   const timeValues = [];
   const durationValues = [];
+  const fontColorValues = [];
+  const now = new Date();
 
   events.forEach((event) => {
     const startTime = event.getStartTime();
-    const durationHours = (event.getEndTime().getTime() - startTime.getTime()) / (1000 * 60 * 60);
+    const endTime = event.getEndTime();
+    const durationHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
 
     idValues.push([event.getId()]);
     titleValues.push([event.getTitle()]);
@@ -186,6 +189,7 @@ function downloadCalendarEntries_(sheet) {
     dateValues.push([startOfDay_(startTime)]);
     timeValues.push([createTimeOnly_(startTime)]);
     durationValues.push([durationHours]);
+    fontColorValues.push([endTime.getTime() < now.getTime() ? '#9e9e9e' : '#000000']);
   });
 
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.id, idValues.length, 1).setValues(idValues);
@@ -194,6 +198,17 @@ function downloadCalendarEntries_(sheet) {
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.date, dateValues.length, 1).setValues(dateValues);
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.time, timeValues.length, 1).setValues(timeValues);
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.duration, durationValues.length, 1).setValues(durationValues);
+
+  [
+    columns.id,
+    columns.event,
+    columns.description,
+    columns.date,
+    columns.time,
+    columns.duration
+  ].forEach((column) => {
+    sheet.getRange(CONFIG.OUTPUT_START_ROW, column, fontColorValues.length, 1).setFontColors(fontColorValues);
+  });
 
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.date, dateValues.length, 1).setNumberFormat('yyyy-mm-dd');
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.time, timeValues.length, 1).setNumberFormat('HH:mm');
