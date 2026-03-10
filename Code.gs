@@ -180,7 +180,8 @@ function downloadCalendarEntries_(sheet) {
 
   events.forEach((event) => {
     const startTime = event.getStartTime();
-    const durationHours = (event.getEndTime().getTime() - startTime.getTime()) / (1000 * 60 * 60);
+    const endTime = event.getEndTime();
+    const durationHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
 
     idValues.push([event.getId()]);
     titleValues.push([event.getTitle()]);
@@ -188,7 +189,7 @@ function downloadCalendarEntries_(sheet) {
     dateValues.push([startOfDay_(startTime)]);
     timeValues.push([createTimeOnly_(startTime)]);
     durationValues.push([durationHours]);
-    fontColorValues.push([startTime.getTime() < now.getTime() ? '#9e9e9e' : '#000000']);
+    fontColorValues.push([endTime.getTime() < now.getTime() ? '#9e9e9e' : '#000000']);
   });
 
   sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.id, idValues.length, 1).setValues(idValues);
