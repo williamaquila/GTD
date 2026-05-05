@@ -8,6 +8,7 @@ const CONFIG = {
   DOWNLOAD_CHECKBOX_RANGE_NAME: 'download',
   PERIOD_START_RANGE_NAME: 'period_start',
   PERIOD_END_RANGE_NAME: 'period_end',
+  POSTPONE_CHECKBOX_RANGE_NAME: 'postpone',
   HEADER_NAMES: {
     id: 'id',
     event: 'event',
@@ -99,6 +100,25 @@ function handleSheetEdit_(e) {
     return;
   }
 
+
+  const postponeCheckboxRange = getNamedRangeOrThrow_(CONFIG.POSTPONE_CHECKBOX_RANGE_NAME);
+  const isPostponeCheckboxEdit =
+    editedRange.getA1Notation() === postponeCheckboxRange.getA1Notation() &&
+    editedRange.getSheet().getSheetId() === postponeCheckboxRange.getSheet().getSheetId();
+
+  if (isPostponeCheckboxEdit) {
+    const isChecked =
+      typeof editedRange.isChecked === 'function'
+        ? editedRange.isChecked()
+        : e.value === 'TRUE' || e.value === true;
+
+    if (isChecked) {
+      postponeSheetEvents_(sheet, postponeCheckboxRange);
+      editedRange.setValue(false);
+    }
+    return;
+  }
+
   const columns = getColumnIndexes_(sheet);
   const row = editedRange.getRow();
   const column = editedRange.getColumn();
@@ -122,6 +142,75 @@ function handleSheetEdit_(e) {
   if (!isChecked) return;
 
   handleUploadCheckboxEdit_(sheet, row, editedRange, columns);
+}
+
+
+/**
+ * Shifts all event date/time cells by the offset located in the cell right of the postpone checkbox.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {GoogleAppsScript.Spreadsheet.Range} postponeCheckboxRange
+ */
+function postponeSheetEvents_(sheet, postponeCheckboxRange) {
+  const offsetValue = sheet
+    .getRange(postponeCheckboxRange.getRow(), postponeCheckboxRange.getColumn() + 1)
+    .getValue();
+  const offsetMs = parseOffsetMilliseconds_(offsetValue);
+
+  if (!offsetMs) {
+    throw new Error('Postpone offset must be a non-zero time value.');
+  }
+
+  const columns = getColumnIndexes_(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < CONFIG.OUTPUT_START_ROW) return;
+
+  const rowCount = lastRow - CONFIG.OUTPUT_START_ROW + 1;
+  const dateRange = sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.date, rowCount, 1);
+  const timeRange = sheet.getRange(CONFIG.OUTPUT_START_ROW, columns.time, rowCount, 1);
+  const dateValues = dateRange.getValues();
+  const timeValues = timeRange.getValues();
+
+  let updatedCount = 0;
+  for (let i = 0; i < rowCount; i += 1) {
+    const dateValue = parseSheetDate_(dateValues[i][0]);
+    const timeValue = parseSheetTime_(timeValues[i][0]);
+    if (!dateValue || !timeValue) continue;
+
+    const start = combineDateAndTime_(dateValue, timeValue);
+    const shifted = new Date(start.getTime() + offsetMs);
+    dateValues[i][0] = startOfDay_(shifted);
+    timeValues[i][0] = createTimeOnly_(shifted);
+    updatedCount += 1;
+  }
+
+  if (updatedCount === 0) return;
+
+  dateRange.setValues(dateValues);
+  timeRange.setValues(timeValues);
+  dateRange.setNumberFormat('yyyy-mm-dd');
+  timeRange.setNumberFormat('HH:mm');
+}
+
+/**
+ * @param {Date|string|number|boolean|null} value
+ * @returns {number}
+ */
+function parseOffsetMilliseconds_(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return (value.getHours() * 60 * 60 + value.getMinutes() * 60 + value.getSeconds()) * 1000;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.round(value * 24 * 60 * 60 * 1000);
+  }
+
+  const parsedTime = parseSheetTime_(value);
+  if (parsedTime) {
+    return (parsedTime.getHours() * 60 * 60 + parsedTime.getMinutes() * 60 + parsedTime.getSeconds()) * 1000;
+  }
+
+  return 0;
 }
 
 function downloadNow() {
