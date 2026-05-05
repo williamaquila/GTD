@@ -190,6 +190,30 @@ function postponeSheetEvents_(sheet, postponeCheckboxRange) {
   timeRange.setValues(timeValues);
   dateRange.setNumberFormat('yyyy-mm-dd');
   timeRange.setNumberFormat('HH:mm');
+
+  syncPostponedRowsToCalendar_(sheet, columns, rowCount);
+}
+
+/**
+ * Applies postponed date/time changes from the sheet to existing calendar events.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {{id:number,event:number,description:number,date:number,time:number,duration:number,upload:number,status:number}} columns
+ * @param {number} rowCount
+ */
+function syncPostponedRowsToCalendar_(sheet, columns, rowCount) {
+  for (let i = 0; i < rowCount; i += 1) {
+    const row = CONFIG.OUTPUT_START_ROW + i;
+    const idValue = String(sheet.getRange(row, columns.id).getValue() || '').trim();
+    if (!idValue) continue;
+
+    try {
+      upsertOrDeleteCalendarEventFromRow_(sheet, row, columns);
+      sheet.getRange(row, columns.status).setValue('Postponed and synced.');
+    } catch (error) {
+      sheet.getRange(row, columns.status).setValue(`Postpone sync error: ${error.message}`);
+    }
+  }
 }
 
 /**
